@@ -1,5 +1,6 @@
 from . import wasm
 import sys
+import os
 from typing import Optional
 
 
@@ -11,6 +12,10 @@ class Read:
         res = self.stream.read(count)
         assert len(res) == count
         return res
+
+    def skip(self, count) -> None:
+        """Skip `count` bytes forward in the stream."""
+        self.stream.seek(count, os.SEEK_CUR)
 
     def byte(self) -> int:
         """Read a single byte from the stream."""
@@ -53,7 +58,11 @@ def read_module(read: Read):
         if not hdr:
             break
         print(hdr)
-        print(read.read(hdr.size))
+        if hdr.id == wasm.SectionId.CODE:
+            read_code_sec(read, hdr.size)
+        else:
+            # We just ignore all other sections for now.
+            read.skip(hdr.size)
 
 
 def read_section_header(read: Read) -> Optional[wasm.SectionHeader]:
@@ -66,6 +75,46 @@ def read_section_header(read: Read) -> Optional[wasm.SectionHeader]:
         wasm.SectionId(id),
         size,
     )
+
+
+def read_code_sec(read: Read, size: int):
+    func_count = read.u32()
+    for _ in range(func_count):
+        size = read.u32()
+        print(size)
+
+        # Locals.
+        local_count = read.u32()
+        print(local_count)
+        for _ in range(local_count):
+            local_num = read.u32()
+            local_type = read.byte()
+            print(local_num, local_type)
+
+        # Body.
+        while True:
+            op = read_instr(read)
+            if op == wasm.Opcode.END:
+                break
+
+
+def read_instr(read: Read) -> wasm.Opcode:
+    opcode = read.byte()
+    assert opcode in list(wasm.Opcode), f"unknown opcode 0x{opcode:x}"
+    op = wasm.Opcode(opcode)
+
+    match op:
+        case wasm.Opcode.LOCAL_GET:
+            idx = read.u32()
+            print('local.get', idx)
+        case wasm.Opcode.I32_ADD:
+            print('add')
+        case wasm.Opcode.END:
+            print('end')
+        case _:
+            assert False, f"unhandled opcode {op.name}"
+
+    return op
 
 
 if __name__ == "__main__":

@@ -56,6 +56,29 @@ def build_chunker(prog, count):
     return chunker
 
 
+def build_assert_eq(prog, width):
+    """Build a component that checks that two signals are equal.
+
+    Kinda wishing that Calyx had a built-in `assert` statement! But,
+    barring that, we instead signal an error by storing into a special
+    register.
+    """
+    # The component has two inputs, `left` and `right`, and an `err` ref
+    # cell to store the result condition in.
+    comp = prog.component(f"assert_eq_{width}")
+    left = comp.input("left", width)
+    right = comp.input("right", width)
+    err = comp.reg("err", 1, is_ref=True)
+
+    comp.control += [
+        if_with(comp.neq_use(left, right), [
+            comp.reg_store(err, 1),
+        ]),
+    ]
+
+    return comp
+
+
 def build_main(prog):
     main = prog.component("main")
 
@@ -77,14 +100,13 @@ def build_main(prog):
     magic_val = const(32, int.from_bytes(wasm.MAGIC))
     chunker_comp = build_chunker(prog, 4)  # A good place for modules...
     chunker = main.cell("chunker", chunker_comp)
+    assert_eq_comp = build_assert_eq(prog, 32)
+    assert_eq = main.cell("assert_eq", assert_eq_comp)
     main.control += [
         main.reg_store(err, 0),
         invoke(chunker, ref_mem=wasm_mem, ref_idx=wasm_idx),
-        # Wishing for Calyx `assert` here. Barring that, signal an error
-        # with an actual output.
-        if_with(main.neq_use(chunker.chunk, magic_val), [
-            main.reg_store(err, 1, "error"),
-        ]),
+        invoke(assert_eq, in_left=chunker.chunk, in_right=magic_val,
+               ref_err=err)
     ]
 
     # Main loop.

@@ -31,7 +31,6 @@ class Read:
         shift = 0
         while True:
             b = self.byte()
-            print(b)
             out |= (b & 0xEF) << shift
             shift += 7
             if not (b & 0x80):
@@ -50,20 +49,23 @@ def read_module(read: Read):
     assert version == wasm.VERSION
 
     while True:
-        sec = read_section(read)
-        if not sec:
+        hdr = read_section_header(read)
+        if not hdr:
             break
+        print(hdr)
+        print(read.read(hdr.size))
 
 
-def read_section(read: Read) -> bool:
+def read_section_header(read: Read) -> Optional[wasm.SectionHeader]:
     id = read.maybe_byte()
     if id is None:
-        return False
+        return None
+
     size = read.u32()
-    cont = read.read(size)
-    assert len(cont) == size
-    print(id, cont)
-    return True
+    return wasm.SectionHeader(
+        wasm.SectionId(id),
+        size,
+    )
 
 
 if __name__ == "__main__":

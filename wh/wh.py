@@ -31,7 +31,7 @@ def build():
 
     # Main loop.
     main.control += while_with(
-        main.le_use(wasm_idx.out, wasm_len.out),
+        main.le_use(wasm_idx.out, wasm_len.read_data),
         [
             main.incr(wasm_idx),
         ],

@@ -18,7 +18,15 @@ def gen_dat():
                 "is_signed": False,
                 "width": 8,
             },
-        }
+        },
+        "wasm_len": {
+            "data": [len(raw_bytes)],
+            "format": {
+                "numeric_type": "bitnum",
+                "is_signed": False,
+                "width": (MAX_BYTES - 1).bit_length(),
+            },
+        },
     }
 
     json.dump(memories, sys.stdout, sort_keys=True)

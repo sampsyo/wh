@@ -70,7 +70,7 @@ def build():
 
     # Check the magic number.
     chunk = main.reg("chunk", 32)
-    err = main.reg("err", 1)
+    err = main.reg("err_reg", 1)
     magic_val = const(32, int.from_bytes(wasm.MAGIC))
     main.control += [
         main.reg_store(err, 0),
@@ -89,6 +89,12 @@ def build():
             main.incr(wasm_idx),
         ],
     )
+
+    # Report errors.
+    err_mem = main.seq_mem_d1("err", 1, 1, 1, is_external=True)
+    main.control += [
+        main.mem_store_seq_d1(err_mem, 0, err.out),
+    ]
 
     return prog.program
 

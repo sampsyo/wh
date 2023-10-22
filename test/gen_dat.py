@@ -27,6 +27,14 @@ def gen_dat():
                 "width": (MAX_BYTES - 1).bit_length(),
             },
         },
+        "err": {
+            "data": [0],
+            "format": {
+                "numeric_type": "bitnum",
+                "is_signed": False,
+                "width": 1,
+            },
+        },
     }
 
     json.dump(memories, sys.stdout, sort_keys=True)

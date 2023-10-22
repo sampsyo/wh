@@ -7,7 +7,7 @@ JSON := $(WAT:%.wat=%.json)
 all: $(WASM) $(JSON)
 
 clean:
-	rm -rf $(WASM)
+	rm -rf $(WASM) $(JSON)
 
 %.wasm: %.wat
 	wat2wasm $^ -o $@

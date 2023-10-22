@@ -1,82 +1,88 @@
-from calyx.builder import Builder, while_with, par, const, if_with
+from calyx.builder import Builder, while_with, par, const, if_with, invoke
 from calyx import py_ast as ast
 from . import wasm
 
 WASM_SIZE = 256
+WASM_IDX_WIDTH = (WASM_SIZE - 1).bit_length()
 
 
-def idx_size(count):
-    """Get the index size for a memory with `count` elements."""
-    # The exception for 1-element memories is something of a wart
-    # in Calyx: they should have zero-bit address ports, but Calyx
-    # doesn't like that.
-    return (count - 1).bit_length() if count > 1 else 1
+def build_chunker(prog, count):
+    chunk_width = 8 * count
 
+    # TODO Only create it once for each count...
+    chunker = prog.component(f"chunker_{count}")
+    chunker.output("chunk", chunk_width)
 
-def build_load_chunk(main, wasm_mem, wasm_idx, count, reg):
-    reg_width = main.infer_width(reg.out)
+    # Input and output cells.
+    chunk = chunker.reg("chunk_reg", chunk_width)
+    mem = chunker.seq_mem_d1("mem", 8, WASM_SIZE, WASM_IDX_WIDTH, is_ref=True)
+    idx = chunker.reg("idx", WASM_IDX_WIDTH, is_ref=True)
+
+    # Wire result register to output.
+    with chunker.continuous:
+        chunker.this()["chunk"] = chunk.out
 
     # Initialize register to 0.
-    ctrl = [
-        main.reg_store(reg, 0, "init_chunk"),
+    chunker.control += [
+        chunker.reg_store(chunk, 0, "init"),
     ]
 
-    pad = main.cell("pad", ast.CompInst("std_pad", [8, reg_width]))
-    lsh = main.binary("lsh", reg_width)
-    or_ = main.binary("or", reg_width)
+    pad = chunker.cell("pad", ast.CompInst("std_pad", [8, chunk_width]))
+    lsh = chunker.binary("lsh", chunk_width)
+    or_ = chunker.binary("or", chunk_width)
 
     # Load each byte.
-    incr = main.incr(wasm_idx, 1, False, "wishing_for_gensym")
-    read_wasm = main.mem_read_seq_d1(wasm_mem, wasm_idx.out, "please_gensym")
+    incr = chunker.incr(idx, 1, False)
+    read_wasm = chunker.mem_read_seq_d1(mem, idx.out)
     for i in range(count):
         # reg := reg | (zext(wasm) << (3-i)*8).
-        with main.group(f"add_byte_{i}_to_chunk") as add_to_chunk:
-            pad.in_ = wasm_mem.read_data
+        with chunker.group(f"add_byte_{i}_to_chunk") as add_to_chunk:
+            pad.in_ = mem.read_data
             lsh.left = pad.out
-            lsh.right = const(reg_width, (count - 1 - i) * 8)
-            or_.left = reg.out
+            lsh.right = const(chunk_width, (count - 1 - i) * 8)
+            or_.left = chunk.out
             or_.right = lsh.out
 
-            reg.in_ = or_.out
-            reg.write_en = 1
-            add_to_chunk.done = reg.done
+            chunk.in_ = or_.out
+            chunk.write_en = 1
+            add_to_chunk.done = chunk.done
 
-        ctrl += [
+        chunker.control += [
             read_wasm,
             add_to_chunk,
             incr,
         ]
 
-    return ctrl
+    return chunker
 
 
 def build_main(prog):
     main = prog.component("main")
 
     # The input memories.
-    wasm_idx_width = idx_size(WASM_SIZE)
-    wasm_mem = main.seq_mem_d1("wasm", 8, WASM_SIZE, wasm_idx_width,
+    wasm_mem = main.seq_mem_d1("wasm", 8, WASM_SIZE, WASM_IDX_WIDTH,
                                is_external=True)
-    wasm_len = main.seq_mem_d1("wasm_len", wasm_idx_width, 1, 1,
+    wasm_len = main.seq_mem_d1("wasm_len", WASM_IDX_WIDTH, 1, 1,
                                is_external=True)
 
     # Loop setup.
-    wasm_idx = main.reg("wasm_idx", wasm_idx_width)
+    wasm_idx = main.reg("wasm_idx", WASM_IDX_WIDTH)
     main.control += par(
         main.mem_read_seq_d1(wasm_len, 0),
         main.reg_store(wasm_idx, 0),
     )
 
     # Check the magic number.
-    chunk = main.reg("chunk", 32)
     err = main.reg("err_reg", 1)
     magic_val = const(32, int.from_bytes(wasm.MAGIC))
+    chunker_comp = build_chunker(prog, 4)  # A good place for modules...
+    chunker = main.cell("chunker", chunker_comp)
     main.control += [
         main.reg_store(err, 0),
-        build_load_chunk(main, wasm_mem, wasm_idx, 4, chunk),
+        invoke(chunker, ref_mem=wasm_mem, ref_idx=wasm_idx),
         # Wishing for Calyx `assert` here. Barring that, signal an error
         # with an actual output.
-        if_with(main.neq_use(chunk.out, magic_val), [
+        if_with(main.neq_use(chunker.chunk, magic_val), [
             main.reg_store(err, 1, "error"),
         ]),
     ]

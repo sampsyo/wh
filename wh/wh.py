@@ -13,7 +13,7 @@ def idx_size(count):
     return (count - 1).bit_length() if count > 1 else 1
 
 
-def build_load4(main, wasm_mem, wasm_idx, reg):
+def build_load_chunk(main, wasm_mem, wasm_idx, count, reg):
     reg_width = main.infer_width(reg.out)
 
     # Initialize register to 0.
@@ -28,12 +28,12 @@ def build_load4(main, wasm_mem, wasm_idx, reg):
     # Load each byte.
     incr = main.incr(wasm_idx, 1, False, "wishing_for_gensym")
     read_wasm = main.mem_read_seq_d1(wasm_mem, wasm_idx.out, "please_gensym")
-    for i in range(4):
+    for i in range(count):
         # reg := reg | (zext(wasm) << (3-i)*8).
         with main.group(f"add_byte_{i}_to_chunk") as add_to_chunk:
             pad.in_ = wasm_mem.read_data
             lsh.left = pad.out
-            lsh.right = const(reg_width, (3 - i) * 8)
+            lsh.right = const(reg_width, (count - 1 - i) * 8)
             or_.left = reg.out
             or_.right = lsh.out
 
@@ -50,8 +50,7 @@ def build_load4(main, wasm_mem, wasm_idx, reg):
     return ctrl
 
 
-def build():
-    prog = Builder()
+def build_main(prog):
     main = prog.component("main")
 
     # The input memories.
@@ -74,7 +73,7 @@ def build():
     magic_val = const(32, int.from_bytes(wasm.MAGIC))
     main.control += [
         main.reg_store(err, 0),
-        build_load4(main, wasm_mem, wasm_idx, chunk),
+        build_load_chunk(main, wasm_mem, wasm_idx, 4, chunk),
         # Wishing for Calyx `assert` here. Barring that, signal an error
         # with an actual output.
         if_with(main.neq_use(chunk.out, magic_val), [
@@ -83,6 +82,8 @@ def build():
     ]
 
     # Main loop.
+    # TODO: The condition should have an `and !err` in it for early
+    # termination.
     main.control += while_with(
         main.le_use(wasm_idx.out, wasm_len.read_data),
         [
@@ -96,6 +97,12 @@ def build():
         main.mem_store_seq_d1(err_mem, 0, err.out),
     ]
 
+    return main
+
+
+def build():
+    prog = Builder()
+    build_main(prog)
     return prog.program
 
 

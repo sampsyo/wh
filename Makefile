@@ -2,7 +2,8 @@
 
 interp: wh.futil test/tiny.json
 	fud exec $< --from calyx --to interpreter-out \
-		-s verilog.data test/tiny.json
+		-s verilog.data test/tiny.json \
+		| jq .main.err[0]
 
 debug: wh.futil test/tiny.json
 	fud exec $< --from calyx --to debugger \

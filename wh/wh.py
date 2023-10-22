@@ -28,11 +28,11 @@ def build_load4(main, wasm, wasm_idx, reg):
     incr = main.incr(wasm_idx, 1, False, "wishing_for_gensym")
     read_wasm = main.mem_read_seq_d1(wasm, wasm_idx.out, "please_gensym")
     for i in range(4):
-        # reg := reg | (zext(wasm) << i*8).
+        # reg := reg | (zext(wasm) << (3-i)*8).
         with main.group(f"add_byte_{i}_to_chunk") as add_to_chunk:
             pad.in_ = wasm.read_data
             lsh.left = pad.out
-            lsh.right = const(reg_width, i * 8)
+            lsh.right = const(reg_width, (3 - i) * 8)
             or_.left = reg.out
             or_.right = lsh.out
 
